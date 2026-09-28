@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="ja">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex,nofollow">
+<title>LINEで受け取る請求書をCSVへ｜AIフローアーキテクト</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap">
+
+<style>
+  /* 3枚共通の見た目。ここが唯一の正本＝ページ側に個別CSSを書かない */
+  :root{
+    --bg:#0A0E16;
+    --panel:#111825;
+    --line:#2A3446;
+    --gold:#D4AF37;
+    --gold-dim:#8C7526;
+    --text:#F2F4F7;
+    --muted:#9AA7B4;
+    --warn:#E0724A;
+    --ok:#5FB894;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:"Noto Sans JP","Hiragino Kaku Gothic ProN",system-ui,sans-serif;
+    font-size:18px;
+    line-height:1.95;
+    padding:clamp(1.5rem,4vw,3.5rem) clamp(1rem,3vw,2rem) clamp(4rem,8vw,7rem);
+    background-image:
+      radial-gradient(1200px 600px at 8% -5%, rgba(212,175,55,.10), transparent 60%),
+      radial-gradient(900px 500px at 100% 105%, rgba(212,175,55,.07), transparent 60%);
+    background-attachment:fixed;
+  }
+  .wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:clamp(3rem,6vw,5rem);}
+
+  header{display:flex;flex-direction:column;gap:.75rem;padding-bottom:1.75rem;border-bottom:1px solid var(--line);}
+  .eyebrow{font-size:.8rem;font-weight:700;letter-spacing:.24em;color:var(--gold);}
+  h1{font-size:clamp(2.2rem,6vw,3.4rem);font-weight:900;line-height:1.25;margin:0;letter-spacing:.01em;text-wrap:balance;}
+  /* 題名の左に置く印（金の線画・実在の道具ではないのでロゴは使わない） */
+  h1{display:flex;align-items:center;gap:.7rem;}
+  h1 .t-icon{width:1em;height:1em;flex:none;stroke:var(--gold);fill:none;stroke-width:1.7;
+    stroke-linecap:round;stroke-linejoin:round;}
+  .lede{margin:0;color:var(--muted);font-size:clamp(1rem,2.2vw,1.15rem);max-width:44rem;}
+
+  section{display:flex;flex-direction:column;gap:1.4rem;}
+  h2{
+    margin:0;font-size:clamp(1.5rem,3.6vw,2rem);font-weight:700;line-height:1.5;
+    /* 題名が2行になっても番号は1行目の高さに置く（中央寄せだと浮いて見にくい） */
+    display:flex;align-items:flex-start;gap:.9rem;flex-wrap:wrap;
+    text-wrap:balance;line-break:strict;word-break:normal;overflow-wrap:normal;
+  }
+  /* 番号は題名と同じ大きさ・同じ行の高さにする＝ズレる余地をなくす
+     （小さい文字を後から位置合わせすると、行の高さの差だけ必ず浮く） */
+  h2 .step{font-size:inherit;line-height:inherit;margin-top:0;align-self:auto;}
+  /* 題名の中で「ここで折る」と決めた位置。それ以外では折らない */
+  h2 .nb{white-space:nowrap;}
+  /* 章の番号＝枠で囲わず数字そのもので示す（目次の①〜④と同じ見え方に揃える） */
+  .step{
+    font-size:1.5rem;font-weight:700;letter-spacing:0;color:var(--gold);
+    border:none;padding:0;white-space:nowrap;line-height:1;
+  }
+  h3{margin:0;font-size:1.15rem;font-weight:700;letter-spacing:.06em;color:var(--gold);}
+
+  .figure{
+    background:linear-gradient(160deg,#0D131E 0%,#161D2B 100%);
+    border:1px solid var(--line);border-radius:6px;
+    padding:clamp(1rem,2.5vw,2rem);overflow-x:auto;
+  }
+  .svg-holder{width:80%;margin:0 auto;min-width:640px;}
+  @media (max-width:900px){ .svg-holder{width:100%;min-width:600px;} }
+  .figure svg{width:100%;height:auto;display:block;}
+
+  .hint{display:flex;align-items:center;gap:.5rem;color:var(--muted);font-size:.88rem;margin:0 0 .9rem;}
+  .hint svg{width:1.05rem;height:1.05rem;flex:none;}
+
+  .node{cursor:help;}
+  .node rect.box{transition:stroke .15s ease, filter .15s ease;}
+  .node:hover rect.box, .node:focus-visible rect.box{
+    stroke:#F0D77A;filter:drop-shadow(0 0 10px rgba(212,175,55,.45));
+  }
+  .node:focus{outline:none;}
+  .node:focus-visible rect.box{stroke-width:3.5;}
+
+  #tip{
+    position:fixed;z-index:50;max-width:24rem;
+    background:#0B111B;border:1px solid var(--gold-dim);border-radius:4px;
+    padding:.85rem 1rem;font-size:.95rem;line-height:1.8;color:var(--text);
+    box-shadow:0 12px 30px rgba(0,0,0,.6);
+    opacity:0;visibility:hidden;transition:opacity .12s ease;pointer-events:none;
+  }
+  #tip.on{opacity:1;visibility:visible;}
+  #tip .tip-name{display:block;color:var(--gold);font-weight:700;font-size:.85rem;letter-spacing:.08em;margin-bottom:.3rem;}
+
+  .reading{
+    background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--gold);
+    border-radius:3px;padding:1.4rem clamp(1.2rem,3vw,1.8rem);
+    display:flex;flex-direction:column;gap:1rem;
+  }
+  .reading ul{margin:0;padding-left:1.3rem;display:flex;flex-direction:column;gap:.7rem;}
+  .reading li::marker{color:var(--gold);}
+  .reading p{margin:0;}
+  b{font-weight:700;color:#FFFFFF;}
+
+  .caution{border-left-color:var(--warn);}
+  .caution h3{color:var(--warn);}
+  .tag{display:inline-block;background:rgba(224,114,74,.14);color:var(--warn);
+    font-size:.8rem;font-weight:700;padding:.15rem .6rem;border-radius:2px;margin-right:.45rem;}
+
+  /* 目次＝冒頭に置く章の一覧 */
+  .toc{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--gold);
+    border-radius:3px;padding:1.2rem clamp(1.2rem,3vw,1.6rem);
+    display:flex;flex-direction:column;gap:.55rem;}
+  .toc h3{margin-bottom:.5rem;}
+  /* 折り返しても2行目が番号の下へ潜らないよう、本文の左端で揃える */
+  .toc a{display:flex;gap:.7rem;align-items:flex-start;color:var(--text);text-decoration:none;
+    font-size:1rem;line-height:1.8;border-bottom:1px solid transparent;
+    line-break:strict;word-break:normal;overflow-wrap:normal;}
+  .toc a:hover,.toc a:focus-visible{color:var(--gold);border-bottom-color:var(--gold-dim);}
+  .toc .no{color:var(--gold);font-weight:700;flex:none;min-width:1.6em;}
+  .toc .nb{white-space:nowrap;}
+
+  /* 出典＝題名の直下。ラベルと出典を縦に積み、URLの途中では折らない */
+  .src{margin:0;font-size:.9rem;line-height:1.9;color:var(--muted);
+    display:flex;flex-wrap:wrap;gap:.15rem .9rem;align-items:baseline;
+    line-break:strict;word-break:normal;overflow-wrap:normal;}
+  .src .no{color:var(--gold);font-weight:700;flex:none;}
+  .src .lbl{color:var(--text);font-weight:700;white-space:nowrap;}
+  .src a{color:var(--gold);white-space:nowrap;}
+
+  .table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:3px;}
+  table{border-collapse:collapse;width:100%;font-size:1rem;min-width:520px;}
+  th,td{text-align:left;padding:1rem 1.1rem;border-bottom:1px solid var(--line);vertical-align:top;}
+  tr:last-child td{border-bottom:none;}
+  th{text-align:center;font-size:1rem;letter-spacing:.06em;color:var(--gold);font-weight:700;
+    white-space:nowrap;background:rgba(212,175,55,.05);}
+  td{text-align:left;}
+  td:first-child{font-weight:700;white-space:nowrap;color:#FFFFFF;}
+  .num{font-variant-numeric:tabular-nums;white-space:nowrap;}
+  /* 表の中のリンク（別紙へ飛ぶ） */
+  td a{color:var(--gold);text-decoration:none;border-bottom:1px solid var(--gold-dim);}
+  td a:hover,td a:focus-visible{border-bottom-color:var(--gold);}
+  .up{color:var(--ok);font-weight:700;}
+  .down{color:var(--warn);font-weight:700;}
+  .flat{color:var(--muted);}
+
+  footer{border-top:1px solid var(--line);padding-top:1.4rem;color:var(--muted);font-size:.9rem;
+    display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;}
+  .brand{color:var(--text);font-weight:700;letter-spacing:.12em;}
+
+  @media (prefers-reduced-motion:reduce){*{transition:none !important;}}
+
+  .tree{background:#0B111B;border:1px solid var(--line);border-radius:4px;
+    padding:clamp(1rem,2.5vw,1.6rem);overflow-x:auto;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-size:.92rem;line-height:1.95;color:#C7D0DA;white-space:pre;}
+  .tree b{color:#D4AF37;font-weight:700;}
+  .tree i{color:var(--muted);font-style:normal;}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;}
+  @media (max-width:820px){ .two{grid-template-columns:1fr;} }
+  .two .reading{gap:.7rem;}
+  .win{color:var(--gold);font-weight:700;text-align:center;margin:.2rem 0;}
+  /* 表の中に置く道具の印＝実在する道具は白タイル＋公式ロゴ（手写ししない） */
+  .tlogo{display:inline-flex;align-items:center;justify-content:center;
+    width:1.5em;height:1.5em;border-radius:.28em;background:#EEF2F6;
+    vertical-align:-.38em;margin-right:.45em;flex:none;}
+  .tlogo svg{width:1.05em;height:1.05em;display:block;}
+  /* 道具でないもの（場所・守り・作業）の印＝金の線画。ロゴは使わない */
+  .tline{display:inline-flex;align-items:center;justify-content:center;
+    width:1.5em;height:1.5em;vertical-align:-.38em;margin-right:.45em;flex:none;}
+  .tline svg{width:1.35em;height:1.35em;display:block;stroke:var(--gold);fill:none;
+    stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;}
+</style>
+
+<div id="tip" role="tooltip"></div>
+
+
+<div class="wrap">
+
+  <header>
+    <span class="eyebrow">ランサーズ 5605300 ご提案</span>
+    <h1><svg class="t-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h4"/></svg>LINEで受け取る請求書を、CSVまで自動でつなぎます</h1>
+    <p class="lede">読み取りは100%にはなりません。だからこそ「間違いを見つけて直す」ところまでを1つの流れとしてお作りし、入力ミスを止めます。</p>
+  </header>
+
+  <nav class="toc" aria-label="目次">
+    <h3>目次</h3>
+    <a href="#ch1"><span class="no">&#9312;</span><span>ご依頼の4点への回答</span></a>
+    <a href="#ch2"><span class="no">&#9313;</span><span>どう動かすか</span></a>
+    <a href="#ch3"><span class="no">&#9314;</span><span>450,000円（税別）の中身</span></a>
+    <a href="#ch4"><span class="no">&#9315;</span><span>納期とお約束</span></a>
+  </nav>
+
+  <section id="ch1">
+    <h2><span class="step">&#9312;</span>ご依頼の4点への回答</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ご依頼の記載事項</th><th>回答</th></tr></thead>
+        <tbody>
+          <tr><td>1. 類似システムについて</td><td>LINE公式アカウントの構築が3件、<br>書類から決まった項目を取り出してCSVや別の書類を自動で作る仕組みが2件ございます。<br>写真から文字を起こす機能も実装しております（本番運用の前の段階です）。<br>請求書の画像からの納品は、今回が初めてになります。</td></tr>
+          <tr><td>2. 想定される開発期間について</td><td>約5週間です。<br>ご希望の納期（10月21日）には余裕をもって間に合います。</td></tr>
+          <tr><td>3. 想定予算について</td><td>概算で合計450,000円（税別）でございます。<br>1段目「読み取りの実証」150,000円＋2段目「本実装・引き渡し」300,000円の分割です。</td></tr>
+          <tr><td>4. 開発方針・ご提案について</td><td>読み取りは必ず外れる前提で組みます。<br>AIが迷った項目に印を付け、担当者様はそこだけ直して確定する形です。<br>直した内容は貯まり、次回から同じ間違いが減ります。</td></tr>
+          <tr><td>5. 納期</td><td>約5週間。<br>第2週に実物10枚の正答率を表でご報告し、第4週に実際の画面を操作していただきます。</td></tr>
+          <tr><td>6. 再委託の有無</td><td><b>ありません。</b>当方1名で担当します。</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="ch2">
+    <h2><span class="step">&#9313;</span>どう動かすか</h2>
+
+    <p class="hint">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#D4AF37" stroke-width="2" aria-hidden="true">
+        <path d="M5 3l10 9-4.5 1.5L13 19l-2.5 1-2.5-5.5L5 18z" stroke-linejoin="round"/>
+      </svg>
+      箱にマウスを合わせる（スマートフォンは指で押す）と、補足が出ます。
+    </p>
+
+    <h3>図1　1枚の請求書が、CSVになるまで</h3>
+    <div class="figure">
+      <div class="svg-holder">
+        <svg viewBox="0 0 1600 880" role="img" aria-label="LINEで届いた請求書が、保存・AIの項目読み取り・自信度の印・担当者の確認を経てCSVになるまでの流れ">
+          <defs>
+            <marker id="f1a" markerWidth="12" markerHeight="12" refX="9" refY="4" orient="auto">
+              <path d="M0,0 L9,4 L0,8 Z" fill="#D4AF37"/>
+            </marker>
+          </defs>
+          <g class="node" tabindex="0" data-name="LINEで受け取る" data-tip="野菜ショップ様から届いた画像・PDFを、LINE公式アカウントのWebhookで自動的に受け取ります。個人LINEからの自動取得は規約上できないため、公式アカウントで受ける形にします。">
+            <rect class="box" x="90" y="130" width="360" height="230" rx="10" fill="#111825" stroke="#4A586B" stroke-width="2"/>
+            <g transform="translate(116,150)"><rect x="0" y="0" width="92" height="92" rx="18" fill="#EEF2F6"/><g transform="translate(20,20) scale(2.166)"><path d="M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63h2.386c.346 0 .627.285.627.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.27.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63.346 0 .628.285.628.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.348 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.282.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.078 9.436-6.975C23.176 14.393 24 12.458 24 10.314" fill="#00C300"/></g></g>
+            <text x="116" y="282" fill="#F2F4F7" font-size="30" font-weight="700">LINEで受け取る</text>
+            <text x="116" y="326" fill="#C3CDD9" font-size="24">公式アカウントに届く</text>
+          </g>
+          <g class="node" tabindex="0" data-name="控えを保存" data-tip="受け取った1枚ずつに受信日時と送り主を付けて保存します。あとから「この請求書はどれか」を追える状態にしておきます。">
+            <rect class="box" x="620" y="130" width="360" height="230" rx="10" fill="#1B2333" stroke="#D4AF37" stroke-width="2"/>
+            <g transform="translate(646,150)"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#D4AF37" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M4 18l5-5 4 4 3-3 4 4"/></svg></g>
+            <text x="646" y="282" fill="#F2F4F7" font-size="30" font-weight="700">画像・PDFを保存</text>
+            <text x="646" y="326" fill="#C3CDD9" font-size="24">1枚ずつ控えを残す</text>
+          </g>
+          <g class="node" tabindex="0" data-name="AIが項目を読む" data-tip="取引先名・請求日・商品名・数量・単価・金額を取り出します。様式が違う請求書でも、項目の意味で探すため作り直しは要りません。">
+            <rect class="box" x="1150" y="130" width="360" height="230" rx="10" fill="#1B2333" stroke="#D4AF37" stroke-width="2"/>
+            <g transform="translate(1176,150)"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#D4AF37" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V5a1 1 0 0 1 1-1h3M20 8V5a1 1 0 0 0-1-1h-3M4 16v3a1 1 0 0 0 1 1h3M20 16v3a1 1 0 0 1-1 1h-3"/><path d="M4 12h16"/></svg></g>
+            <text x="1176" y="282" fill="#F2F4F7" font-size="30" font-weight="700">AIが項目を読む</text>
+            <text x="1176" y="326" fill="#C3CDD9" font-size="24">取引先名・請求日・金額</text>
+          </g>
+          <g class="node" tabindex="0" data-name="自信のない所に印" data-tip="AIが「読み取れたか怪しい」と判断した項目に印を付けます。明細の合計と請求金額が合わない時も印が付きます。担当者様は印の付いた所だけ見ればよくなります。">
+            <rect class="box" x="90" y="520" width="360" height="230" rx="10" fill="#1B2333" stroke="#D4AF37" stroke-width="2"/>
+            <g transform="translate(116,540)"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#D4AF37" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l9 16H3z"/><path d="M12 10v4"/><path d="M12 17h.01"/></svg></g>
+            <text x="116" y="672" fill="#F2F4F7" font-size="30" font-weight="700">自信のない項目に印</text>
+            <text x="116" y="716" fill="#C3CDD9" font-size="24">迷った項目だけ色が付く</text>
+          </g>
+          <g class="node" tabindex="0" data-name="担当者が直して確定" data-tip="画面で印の付いた項目を直し、確定を押します。人が見る場所はここだけです。直した内容は貯まり、次回から同じ間違いが減ります。">
+            <rect class="box" x="620" y="520" width="360" height="230" rx="10" fill="#111825" stroke="#5FB894" stroke-width="2.5"/>
+            <g transform="translate(646,540)"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#D4AF37" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3.2"/></svg></g>
+            <text x="646" y="672" fill="#F2F4F7" font-size="30" font-weight="700">担当者が直して確定</text>
+            <text x="646" y="716" fill="#C3CDD9" font-size="24">ここだけ人が見ます</text>
+          </g>
+          <g class="node" tabindex="0" data-name="CSVを書き出す" data-tip="確定した内容を、いまお使いの列の並びのままCSVで書き出します。既存の管理表にそのまま取り込めます。">
+            <rect class="box" x="1150" y="520" width="360" height="230" rx="10" fill="#111825" stroke="#5FB894" stroke-width="2.5"/>
+            <g transform="translate(1176,540)"><rect x="0" y="0" width="92" height="92" rx="18" fill="#EEF2F6"/><g transform="translate(20,20) scale(2.166)"><path d="M11.318 12.545H7.91v-1.909h3.41v1.91zM14.728 0v6h6l-6-6zm1.363 10.636h-3.41v1.91h3.41v-1.91zm0 3.273h-3.41v1.91h3.41v-1.91zM20.727 6.5v15.864c0 .904-.732 1.636-1.636 1.636H4.909a1.636 1.636 0 0 1-1.636-1.636V1.636C3.273.732 4.005 0 4.909 0h9.318v6.5h6.5zm-3.273 2.773H6.545v7.909h10.91v-7.91zm-6.136 4.636H7.91v1.91h3.41v-1.91z" fill="#34A853"/></g></g>
+            <text x="1176" y="672" fill="#F2F4F7" font-size="30" font-weight="700">CSVを書き出す</text>
+            <text x="1176" y="716" fill="#C3CDD9" font-size="24">既存の管理表に取込み</text>
+          </g>
+          <path d="M454,245 L606,245" stroke="#D4AF37" stroke-width="3" marker-end="url(#f1a)"/>
+          <path d="M984,245 L1136,245" stroke="#D4AF37" stroke-width="3" marker-end="url(#f1a)"/>
+          <path d="M1330,364 L1330,440 L270,440 L270,506" fill="none" stroke="#D4AF37" stroke-width="3" marker-end="url(#f1a)"/>
+          <path d="M454,635 L606,635" stroke="#D4AF37" stroke-width="3" marker-end="url(#f1a)"/>
+          <path d="M984,635 L1136,635" stroke="#D4AF37" stroke-width="3" marker-end="url(#f1a)"/>
+          <text x="90" y="800" fill="#5FB894" font-size="24">緑の枠＝人が見る場所。担当者様の手が要るのは「印の付いた所を直す」だけです。</text>
+        </svg>
+      </div>
+    </div>
+
+    <h3>図2　読み間違いを、どこで捕まえるか</h3>
+    <div class="figure">
+      <div class="svg-holder">
+        <svg viewBox="0 0 1600 760" role="img" aria-label="請求書の項目ごとに、AIが読む・自信度が低ければ印が付く・担当者が確定する、の3段で読み間違いを受け止めることを示した表">
+          <text x="190" y="86" fill="#9AA7B4" font-size="24" font-weight="700">請求書の項目</text>
+          <text x="640" y="86" fill="#9AA7B4" font-size="24" font-weight="700">AIが読む</text>
+          <text x="960" y="86" fill="#9AA7B4" font-size="24" font-weight="700">怪しい時</text>
+          <text x="1270" y="86" fill="#9AA7B4" font-size="24" font-weight="700">担当者が確定</text>
+          <g class="node" tabindex="0" data-name="取引先名" data-tip="過去の取引先名の一覧と照らして選びます。似た名前が複数ある時は候補を出して選んでいただきます。">
+            <rect class="box" x="90" y="120" width="1420" height="78" rx="8" fill="#141B28" stroke="#4A586B" stroke-width="2"/>
+            <g transform="translate(110,131)"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#D4AF37" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg></g>
+            <text x="190" y="172" fill="#F2F4F7" font-size="24" font-weight="700">取引先名</text>
+            <text x="640" y="172" fill="#C3CDD9" font-size="23">文字を取り出す</text>
+            <text x="960" y="172" fill="#E0724A" font-size="23">印が付く</text>
+            <text x="1270" y="172" fill="#5FB894" font-size="23">選び直して確定</text>
+          </g>
+          <g class="node" tabindex="0" data-name="請求日" data-tip="和暦・スラッシュ・ドットなど表記が混ざっていても同じ形に揃えます。">
+            <rect class="box" x="90" y="216" width="1420" height="78" rx="8" fill="#141B28" stroke="#4A586B" stroke-width="2"/>
+            <g transform="translate(110,227)"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#D4AF37" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></g>
+            <text x="190" y="268" fill="#F2F4F7" font-size="24" font-weight="700">請求日</text>
+            <text x="640" y="268" fill="#C3CDD9" font-size="23">日付の形を揃える</text>
+            <text x="960" y="268" fill="#E0724A" font-size="23">印が付く</text>
+            <text x="1270" y="268" fill="#5FB894" font-size="23">直して確定</text>
+          </g>
+          <g class="node" tabindex="0" data-name="商品名" data-tip="明細を1行ずつに分けます。行がつながってしまった時は印を付けます。">
+            <rect class="box" x="90" y="312" width="1420" height="78" rx="8" fill="#141B28" stroke="#4A586B" stroke-width="2"/>
+            <g transform="translate(110,323)"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#D4AF37" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6"/></svg></g>
+            <text x="190" y="364" fill="#F2F4F7" font-size="24" font-weight="700">商品名</text>
+            <text x="640" y="364" fill="#C3CDD9" font-size="23">明細を行ごとに</text>
+            <text x="960" y="364" fill="#E0724A" font-size="23">印が付く</text>
+            <text x="1270" y="364" fill="#5FB894" font-size="23">直して確定</text>
+          </g>
+          <g class="node" tabindex="0" data-name="数量・単価" data-tip="数字の桁・カンマ・単位を取り出します。桁が読めない時は印を付けます。">
+            <rect class="box" x="90" y="408" width="1420" height="78" rx="8" fill="#141B28" stroke="#4A586B" stroke-width="2"/>
+            <g transform="translate(110,419)"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#D4AF37" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h10M4 12h7M4 18h4"/><path d="M17 8v10"/><path d="M14 15l3 3 3-3"/></svg></g>
+            <text x="190" y="460" fill="#F2F4F7" font-size="24" font-weight="700">数量・単価</text>
+            <text x="640" y="460" fill="#C3CDD9" font-size="23">数字を取り出す</text>
+            <text x="960" y="460" fill="#E0724A" font-size="23">印が付く</text>
+            <text x="1270" y="460" fill="#5FB894" font-size="23">直して確定</text>
+          </g>
+          <g class="node" tabindex="0" data-name="金額（合計）" data-tip="明細の合計と請求金額を突き合わせます。1円でも合わなければ必ず印が付きます＝入力ミス防止の要です。">
+            <rect class="box" x="90" y="504" width="1420" height="78" rx="8" fill="#141B28" stroke="#4A586B" stroke-width="2"/>
+            <g transform="translate(110,515)"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#D4AF37" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M7 21h10"/><path d="M3 7h3c2 0 4-1 6-2 2 1 4 2 6 2h3"/><path d="M6 7l-3 7c.9.7 1.9 1 3 1s2.1-.3 3-1z"/><path d="M18 7l-3 7c.9.7 1.9 1 3 1s2.1-.3 3-1z"/></svg></g>
+            <text x="190" y="556" fill="#F2F4F7" font-size="24" font-weight="700">金額（合計）</text>
+            <text x="640" y="556" fill="#C3CDD9" font-size="23">明細の合計と照合</text>
+            <text x="960" y="556" fill="#E0724A" font-size="23">合わなければ印</text>
+            <text x="1270" y="556" fill="#5FB894" font-size="23">必ず目視で確定</text>
+          </g>
+          <g class="node" tabindex="0" data-name="備考・手書き" data-tip="手書きは読めないことがあります。読めない時は空欄のまま残し、勝手に埋めません。">
+            <rect class="box" x="90" y="600" width="1420" height="78" rx="8" fill="#141B28" stroke="#4A586B" stroke-width="2"/>
+            <g transform="translate(110,611)"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#D4AF37" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 3l3 3-9 9-3-3z"/><path d="M9 12c-3 0-5 2-5 5 0 2-1 3-2 4 4 0 8-1 9-4z"/></svg></g>
+            <text x="190" y="652" fill="#F2F4F7" font-size="24" font-weight="700">備考・手書き</text>
+            <text x="640" y="652" fill="#C3CDD9" font-size="23">読めた分だけ</text>
+            <text x="960" y="652" fill="#E0724A" font-size="23">読めなければ空欄</text>
+            <text x="1270" y="652" fill="#5FB894" font-size="23">手で入力</text>
+          </g>
+          <text x="90" y="716" fill="#9AA7B4" font-size="24">印の付いた項目だけを見れば済むので、全項目を目で追う今の確認作業がなくなります。</text>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <section id="ch3">
+    <h2><span class="step">&#9314;</span>450,000円（税別）の中身</h2>
+
+    <h3>図3　入る範囲／難しい範囲／別途</h3>
+    <div class="figure">
+      <div class="svg-holder">
+        <svg viewBox="0 0 1600 520" role="img" aria-label="45万円に入る範囲、難しい範囲、別途になる範囲を横1本の帯で割合として示した図">
+          <text x="90" y="86" fill="#9AA7B4" font-size="24">帯の幅＝この案件でお引き受けする範囲の割合です。</text>
+          <g class="node" tabindex="0" data-name="入る範囲（450,000円・税別）" data-tip="LINE公式アカウントでの自動受信、AIによる項目抽出、自信度の印、確認・修正画面、CSV出力、手順書と引き渡しまで。検収期間中の不具合修正も含みます。">
+            <rect class="box" x="90" y="120" width="820" height="230" rx="10" fill="rgba(212,175,55,.09)" stroke="#D4AF37" stroke-width="3"/>
+            <g transform="translate(116,140)"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#D4AF37" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l3 3 5-6"/></svg></g>
+            <text x="116" y="272" fill="#D4AF37" font-size="28" font-weight="700">入る範囲　450,000円（税別）</text>
+            <text x="116" y="316" fill="#F2F4F7" font-size="22">LINE受信／項目抽出／確認画面／CSV出力</text>
+          </g>
+          <text x="116" y="336" fill="#5FB894" font-size="22">ご満足いただけなければ全額返金いたします。</text>
+          <g class="node" tabindex="0" data-name="難しい範囲" data-tip="読み取りの精度は、手書き・かすれ・傾き・複数枚の綴じで変わります。現物を見ていないため数字でのお約束はいたしません。1段目で実物10枚の正答率を測り、数字でご報告します。">
+            <rect class="box" x="930" y="120" width="300" height="230" rx="10" fill="rgba(224,114,74,.08)" stroke="#E0724A" stroke-width="3"/>
+            <g transform="translate(956,140)"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#D4AF37" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l9 16H3z"/><path d="M12 10v4"/><path d="M12 17h.01"/></svg></g>
+            <text x="956" y="272" fill="#E0724A" font-size="28" font-weight="700">難しい範囲</text>
+            <text x="956" y="316" fill="#F2F4F7" font-size="20">読み取り精度の保証</text>
+          </g>
+          <text x="956" y="336" fill="#F2F4F7" font-size="20">実物10枚で実測します</text>
+          <g class="node" tabindex="0" data-name="別途になる範囲" data-tip="会計ソフトへの直接連携は今回の範囲外です（CSV出力まで）。個人LINEからの自動取得は規約上できないため、LINE公式アカウントで受ける形にします。">
+            <rect class="box" x="1250" y="120" width="260" height="230" rx="10" fill="#111825" stroke="#4A586B" stroke-width="3"/>
+            <g transform="translate(1276,140)"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#D4AF37" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg></g>
+            <text x="1276" y="272" fill="#9AA7B4" font-size="28" font-weight="700">別途</text>
+            <text x="1276" y="316" fill="#F2F4F7" font-size="20">会計ソフトへの連携</text>
+          </g>
+          <text x="1276" y="336" fill="#9AA7B4" font-size="20">個人LINEは規約上不可</text>
+          <text x="90" y="430" fill="#9AA7B4" font-size="24">別途の分は、ご要望があればご相談のうえお見積りします。</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="reading caution">
+      <h3><span class="tag">費用</span>読み取りに使うAIの利用料（御社のご負担・実費）</h3>
+      <p>
+        公式の料金ページに記載の単価は、100万トークンあたり 入力 $2.50 ／ 出力 $10.00 です。<br>
+        1枚あたり約$0.01（約1.5円）、月300枚で約$3（約450円）が当方の試算です（当方の試算であり、保証値ではございません）。<br>
+        <b>確定した金額は、第2週の実証で実物を読ませて実測し、1枚あたりいくらという数字でご報告します。</b>
+      </p>
+    </div>
+  </section>
+
+  <section id="ch4">
+    <h2><span class="step">&#9315;</span>納期とお約束</h2>
+
+    <h3>図4　5週間の進み方</h3>
+    <div class="figure">
+      <div class="svg-holder">
+        <svg viewBox="0 0 1600 760" role="img" aria-label="5週間を4つに分け、第2週の実証の時点で一度判断いただけることを軸の上下に示した図">
+          <defs>
+            <marker id="f4a" markerWidth="12" markerHeight="12" refX="9" refY="4" orient="auto">
+              <path d="M0,0 L9,4 L0,8 Z" fill="#D4AF37"/>
+            </marker>
+          </defs>
+          <path d="M90,350 L1510,350" stroke="#4A586B" stroke-width="3"/>
+          <g class="node" tabindex="0" data-name="第1週 要件を固める" data-tip="いまお使いのLINE環境（公式アカウントか個人LINEか）と、請求書の様式・CSVの列の並びを確認します。ここがずれると全部作り直しになるため、最初に押さえます。">
+            <rect class="box" x="110" y="90" width="320" height="220" rx="10" fill="rgba(212,175,55,.09)" stroke="#D4AF37" stroke-width="2.5"/>
+            <g transform="translate(136,110)"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#D4AF37" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.3-4.3"/></svg></g>
+            <text x="136" y="242" fill="#D4AF37" font-size="28" font-weight="700">第1週　要件</text>
+            <text x="136" y="286" fill="#C3CDD9" font-size="22">LINE環境と様式の確認</text>
+          </g>
+          <g class="node" tabindex="0" data-name="第2週 実物10枚で実証" data-tip="お預かりした実物の請求書10枚を読ませ、項目ごとの正答率を表でご報告します。ここが1段目（150,000円）の区切りです。">
+            <rect class="box" x="480" y="390" width="320" height="220" rx="10" fill="#111825" stroke="#5FB894" stroke-width="2.5"/>
+            <g transform="translate(506,410)"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#D4AF37" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6"/><path d="M10 3v6L5 19a1.5 1.5 0 0 0 1.3 2h11.4A1.5 1.5 0 0 0 19 19l-5-10V3"/></svg></g>
+            <text x="506" y="542" fill="#5FB894" font-size="28" font-weight="700">第2週　実証</text>
+            <text x="506" y="586" fill="#C3CDD9" font-size="22">正答率を表でご報告</text>
+          </g>
+          <g class="node" tabindex="0" data-name="第3〜4週 本実装" data-tip="LINEの自動受信、確認・修正画面、CSV出力を作ります。第4週に実際の画面を操作していただけます。">
+            <rect class="box" x="850" y="90" width="320" height="220" rx="10" fill="#1B2333" stroke="#D4AF37" stroke-width="2"/>
+            <g transform="translate(876,110)"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#D4AF37" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18"/><path d="M6 20V10l6-4 6 4v10"/><path d="M10 20v-5h4v5"/></svg></g>
+            <text x="876" y="242" fill="#F2F4F7" font-size="28" font-weight="700">第3〜4週　実装</text>
+            <text x="876" y="286" fill="#C3CDD9" font-size="22">受信・画面・CSV出力</text>
+          </g>
+          <g class="node" tabindex="0" data-name="第5週 引き渡し" data-tip="手順書をお渡しし、操作をご説明します。検収期間中の不具合修正は無償です。">
+            <rect class="box" x="1220" y="390" width="320" height="220" rx="10" fill="#1B2333" stroke="#D4AF37" stroke-width="2"/>
+            <g transform="translate(1246,410)"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#D4AF37" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l2-7h14l2 7"/><path d="M12 10V4"/><path d="M8 4h8"/><path d="M3 20h18"/></svg></g>
+            <text x="1246" y="542" fill="#F2F4F7" font-size="28" font-weight="700">第5週　引き渡し</text>
+            <text x="1246" y="586" fill="#C3CDD9" font-size="22">手順書と操作のご説明</text>
+          </g>
+          <path d="M434,250 L474,330" stroke="#D4AF37" stroke-width="3" marker-end="url(#f4a)"/>
+          <path d="M804,450 L844,370" stroke="#D4AF37" stroke-width="3" marker-end="url(#f4a)"/>
+          <path d="M1174,250 L1214,330" stroke="#D4AF37" stroke-width="3" marker-end="url(#f4a)"/>
+          <text x="480" y="668" fill="#5FB894" font-size="26" font-weight="700">ここで一度ご判断いただけます</text>
+          <text x="480" y="712" fill="#F2F4F7" font-size="23">正答率が基準に届かなければ、ここでお止めいただけます（2段目は発生しません）。</text>
+          <text x="90" y="712" fill="#5FB894" font-size="23">全額返金いたします。</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>項目</th><th>内容</th></tr></thead>
+        <tbody>
+          <tr><td>途中の確認</td><td>第2週に実物10枚の正答率を表でご報告し、<br>第4週に確認・修正画面を実際に操作していただきます。</td></tr>
+          <tr><td>修正対応</td><td>検収期間中の不具合修正は無償です。仕様の変更・追加は別途お見積りします。</td></tr>
+          <tr><td>秘密保持</td><td>お預かりした請求書は本件のためだけに使用し、第三者へ渡しません。<br>作業の終了後は、ご指示のとおり削除またはご返却します。</td></tr>
+          <tr><td>引渡し</td><td>動く仕組み一式、設定の手順書、CSVの列の対応表をお渡しします。<br>御社のアカウントで動く形にしてお渡しします。</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="reading">
+      <h3>次にお願いしたいこと</h3>
+      <p>
+        ご検討の中で決め手になっている箇所を、一言お聞かせいただけますでしょうか。<br>
+        <b>金額</b>であれば、範囲を絞ったお見積りをお出しします。<br>
+        <b>読み取りの精度</b>であれば、実物の請求書を2〜3枚お預かりして読ませ、結果をそのままお見せします（無償）。
+      </p>
+    </div>
+  </section>
+
+  <footer>
+    <span class="brand">AIフローアーキテクト</span>
+    <span>ランサーズ 依頼番号 5605300 へのご提案</span>
+  </footer>
+
+</div>
+
+<script>
+/* 3枚共通のホバー解説。ここが唯一の正本＝ページ側に個別スクリプトを書かない */
+(function(){
+  var tip = document.getElementById('tip');
+  var current = null;
+
+  function show(el){
+    var name = el.getAttribute('data-name') || '';
+    var body = el.getAttribute('data-tip') || '';
+    if(!body) return;
+    tip.innerHTML = '';
+    if(name){
+      var n = document.createElement('span');
+      n.className = 'tip-name';
+      n.textContent = name;
+      tip.appendChild(n);
+    }
+    tip.appendChild(document.createTextNode(body));
+    tip.classList.add('on');
+    position(el);
+    current = el;
+  }
+
+  function position(el){
+    var r = el.getBoundingClientRect();
+    var t = tip.getBoundingClientRect();
+    var pad = 12;
+    var left = r.left + r.width/2 - t.width/2;
+    left = Math.max(pad, Math.min(left, window.innerWidth - t.width - pad));
+    var top = r.top - t.height - pad;
+    if(top < pad) top = r.bottom + pad;
+    if(top + t.height > window.innerHeight - pad){
+      top = Math.max(pad, window.innerHeight - t.height - pad);
+    }
+    tip.style.left = left + 'px';
+    tip.style.top = top + 'px';
+  }
+
+  function hide(){ tip.classList.remove('on'); current = null; }
+
+  var nodes = document.querySelectorAll('.node');
+  for(var i=0;i<nodes.length;i++){
+    (function(el){
+      el.addEventListener('mouseenter', function(){ show(el); });
+      el.addEventListener('mouseleave', hide);
+      el.addEventListener('focus', function(){ show(el); });
+      el.addEventListener('blur', hide);
+      el.addEventListener('click', function(e){
+        e.stopPropagation();
+        if(current === el){ hide(); } else { show(el); }
+      });
+    })(nodes[i]);
+  }
+
+  document.addEventListener('click', hide);
+  window.addEventListener('scroll', function(){ if(current) position(current); }, {passive:true});
+  window.addEventListener('resize', function(){ if(current) position(current); });
+  document.addEventListener('keydown', function(e){ if(e.key === 'Escape') hide(); });
+})();
+</script>
+
